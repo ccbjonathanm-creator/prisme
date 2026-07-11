@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Sécurité : aucun script distant. On autorise le WASM (moteur OCR local Tesseract),
+       les workers/blobs internes, et uniquement les 2 API IA choisies par l'utilisateur. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: data: https://generativelanguage.googleapis.com https://api.groq.com; base-uri 'none'; frame-ancestors 'none'; object-src 'none'" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#050914" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Prisme" />
+  <title>Prisme — Scanner IA</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/favicon-64.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="aurora"></div>
+
+  <div id="app" class="app">
+
+    <!-- ===================== TOPBAR ===================== -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="26" height="26">
+            <defs>
+              <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#5eead4"/><stop offset=".5" stop-color="#818cf8"/><stop offset="1" stop-color="#f472b6"/>
+              </linearGradient>
+            </defs>
+            <path d="M16 3 L28 25 L4 25 Z" fill="none" stroke="url(#lg)" stroke-width="2.2" stroke-linejoin="round"/>
+            <path d="M16 3 L16 25 M10 14 L22 14" stroke="url(#lg)" stroke-width="1.4" opacity=".7"/>
+          </svg>
+        </span>
+        <div class="brand-text">
+          <b>Prisme</b>
+          <small>Scanne. Comprends.</small>
+        </div>
+      </div>
+      <button id="btn-settings" class="icon-btn" aria-label="Réglages" title="Réglages">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>
+        </svg>
+      </button>
+    </header>
+
+    <main id="view" class="view">
+
+      <!-- ===================== ÉCRAN CAPTURE ===================== -->
+      <section id="screen-capture" class="screen">
+        <div class="scanner">
+          <div class="scanner-frame">
+            <video id="cam" class="cam" playsinline autoplay muted></video>
+            <img id="frozen" class="frozen hidden" alt="" />
+            <div class="scan-overlay">
+              <span class="corner tl"></span><span class="corner tr"></span>
+              <span class="corner bl"></span><span class="corner br"></span>
+              <div class="scan-line"></div>
+            </div>
+            <div id="cam-hint" class="cam-hint">
+              <p>Vise un document</p>
+              <span>facture, courrier, notice, panneau…</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="capture-bar">
+          <button id="btn-gallery" class="round-btn ghost" aria-label="Depuis la galerie" title="Depuis la galerie">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15l5-4 4 3 3-2 6 5"/><circle cx="8.5" cy="9.5" r="1.5"/>
+            </svg>
+          </button>
+          <button id="btn-shoot" class="shutter" aria-label="Scanner"><span></span></button>
+          <button id="btn-flip" class="round-btn ghost" aria-label="Changer de caméra" title="Changer de caméra">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M4 8a8 8 0 0 1 13-3l2 2M20 16a8 8 0 0 1-13 3l-2-2"/><path d="M19 4v3h-3M5 20v-3h3"/>
+            </svg>
+          </button>
+        </div>
+        <input id="file-input" type="file" accept="image/*" hidden />
+        <p id="engine-pill" class="engine-pill" role="button" tabindex="0"></p>
+      </section>
+
+      <!-- ===================== ÉCRAN ANALYSE ===================== -->
+      <section id="screen-analyze" class="screen hidden">
+        <div class="preview-wrap">
+          <img id="preview-img" class="preview-img" alt="Document scanné" />
+          <button id="btn-retake" class="chip-back">↺ Reprendre</button>
+        </div>
+
+        <div id="ocr-status" class="ocr-status">
+          <div class="spinner"></div>
+          <span>Lecture du document…</span>
+        </div>
+
+        <div id="actions" class="actions hidden">
+          <p class="actions-title">Que veux-tu en faire ?</p>
+          <div class="action-grid">
+            <button class="action" data-action="resumer">
+              <span class="ai-emoji">📝</span><b>Résumer</b><small>L'essentiel en 3 lignes</small>
+            </button>
+            <button class="action" data-action="expliquer">
+              <span class="ai-emoji">💡</span><b>Expliquer</b><small>En clair, quoi faire</small>
+            </button>
+            <button class="action" data-action="traduire">
+              <span class="ai-emoji">🌍</span><b>Traduire</b><small>Dans ta langue</small>
+            </button>
+            <button class="action" data-action="extraire">
+              <span class="ai-emoji">🔍</span><b>Extraire</b><small>Dates, montants, infos</small>
+            </button>
+          </div>
+        </div>
+
+        <details id="raw-text" class="raw-text hidden">
+          <summary>Texte lu <span id="raw-count"></span></summary>
+          <pre id="raw-pre"></pre>
+        </details>
+      </section>
+
+      <!-- ===================== ÉCRAN RÉSULTAT ===================== -->
+      <section id="screen-result" class="screen hidden">
+        <div class="result-head">
+          <button id="btn-result-back" class="chip-back">← Retour</button>
+          <span id="result-badge" class="result-badge"></span>
+        </div>
+        <h2 id="result-title" class="result-title"></h2>
+        <div id="result-body" class="result-body"></div>
+        <div class="result-foot">
+          <button id="btn-copy" class="btn ghost">Copier</button>
+          <button id="btn-share" class="btn ghost">Partager</button>
+          <button id="btn-new" class="btn primary">Nouveau scan</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ===================== FEUILLE RÉGLAGES ===================== -->
+  <div id="sheet-backdrop" class="sheet-backdrop hidden"></div>
+  <aside id="sheet" class="sheet hidden" role="dialog" aria-modal="true">
+    <div class="sheet-grab"></div>
+    <h3>Cerveau de l'app</h3>
+    <p class="sheet-sub">Choisis qui analyse tes documents. Ta clé reste sur ce téléphone, jamais envoyée ailleurs qu'à l'IA que tu choisis.</p>
+
+    <div class="engine-choices">
+      <label class="engine-choice">
+        <input type="radio" name="provider" value="gemini" />
+        <div class="ec-body"><b>Gemini <span class="tag free">gratuit</span></b><small>Rapide et puissant. Clé Google AI Studio.</small></div>
+      </label>
+      <label class="engine-choice">
+        <input type="radio" name="provider" value="groq" />
+        <div class="ec-body"><b>Groq <span class="tag free">gratuit</span></b><small>Ultra rapide (Llama). Clé console.groq.com.</small></div>
+      </label>
+    </div>
+
+    <div id="key-block" class="key-block">
+      <label id="key-label" for="key-input">Clé API</label>
+      <div class="key-row">
+        <input id="key-input" type="password" placeholder="Colle ta clé ici" autocomplete="off" spellcheck="false" />
+        <button id="key-eye" class="icon-btn" type="button" aria-label="Afficher/masquer">👁</button>
+      </div>
+      <a id="key-help" class="key-help" href="#" target="_blank" rel="noopener">Où trouver ma clé gratuite ?</a>
+    </div>
+
+    <div class="sheet-foot">
+      <button id="btn-settings-save" class="btn primary block">Enregistrer</button>
+    </div>
+    <p class="version" id="version-line"></p>
+  </aside>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- Moteur OCR local (embarqué, aucun code distant) -->
+  <script src="vendor/tesseract.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "Prisme — Scanner IA",
+  "short_name": "Prisme",
+  "description": "Scanne n'importe quel document : l'app lit le texte puis le résume, l'explique, le traduit ou en extrait les infos clés. IA au choix, hors-ligne possible.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#050914",
+  "theme_color": "#050914",
+  "categories": ["productivity", "utilities", "education"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
