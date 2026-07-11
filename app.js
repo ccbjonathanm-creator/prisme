@@ -5,7 +5,7 @@
    Cerveau IA au choix : Gemini, Groq (clé de l'utilisateur, stockée sur l'appareil)
    =========================================================== */
 
-const APP_VERSION = 'v1';
+const APP_VERSION = 'v2';
 
 /* -------------------- État & stockage -------------------- */
 const LS_KEY = 'prisme_settings_v1';
@@ -96,6 +96,53 @@ function downscale(dataUrl, maxSide=1600){
   });
 }
 
+/* Prépare l'image POUR L'OCR : grand format + niveaux de gris + contraste étiré.
+   On renvoie un CANVAS passé tel quel à Tesseract (aucune recompression JPEG,
+   donc zéro artefact qui brouille les petits chiffres). */
+function prepareForOCR(dataUrl, target=2400){
+  return new Promise((res)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      let {width:w, height:h} = img;
+      // Vise ~2400 px de grand côté : réduit les grosses photos, agrandit un peu les petites (x2 max).
+      let scale = target/Math.max(w,h);
+      scale = Math.min(scale, 2);
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(w*scale));
+      c.height = Math.max(1, Math.round(h*scale));
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      try{
+        const im = ctx.getImageData(0,0,c.width,c.height);
+        const px = im.data;
+        // 1) luminance (gris) + histogramme
+        const gray = new Uint8ClampedArray(px.length/4);
+        const hist = new Uint32Array(256);
+        for(let i=0,j=0;i<px.length;i+=4,j++){
+          const g = (px[i]*0.299 + px[i+1]*0.587 + px[i+2]*0.114)|0;
+          gray[j]=g; hist[g]++;
+        }
+        // 2) bornes de contraste aux 2e/98e centiles (ignore les extrêmes)
+        const total = gray.length;
+        let cum=0, min=0, max=255;
+        for(let v=0;v<256;v++){ cum+=hist[v]; if(cum>=0.02*total){ min=v; break; } }
+        cum=0; for(let v=255;v>=0;v--){ cum+=hist[v]; if(cum>=0.02*total){ max=v; break; } }
+        const range = Math.max(1, max-min);
+        // 3) étirement du contraste sur toute la plage
+        for(let i=0,j=0;i<px.length;i+=4,j++){
+          let g = (gray[j]-min)*255/range;
+          g = g<0?0:g>255?255:g;
+          px[i]=px[i+1]=px[i+2]=g;
+        }
+        ctx.putImageData(im,0,0);
+      }catch(e){ /* getImageData indispo : on garde l'image gris/couleur redimensionnée */ }
+      res(c);
+    };
+    img.onerror = ()=>res(dataUrl); // repli : Tesseract accepte aussi le dataURL
+    img.src = dataUrl;
+  });
+}
+
 /* -------------------- OCR local (Tesseract embarqué) -------------------- */
 let ocrWorker = null;
 async function getOcrWorker(){
@@ -108,11 +155,14 @@ async function getOcrWorker(){
     langPath:   abs('vendor/lang'),
     gzip: true,
   });
+  // Réglages qui fiabilisent la lecture (DPI supposé, espaces conservés).
+  try{ await ocrWorker.setParameters({ user_defined_dpi:'300', preserve_interword_spaces:'1' }); }
+  catch(e){ /* non bloquant */ }
   return ocrWorker;
 }
-async function runOCR(dataUrl){
+async function runOCR(source){
   const worker = await getOcrWorker();
-  const { data } = await worker.recognize(dataUrl);
+  const { data } = await worker.recognize(source);
   return (data.text || '').trim();
 }
 
@@ -290,7 +340,8 @@ async function handleImage(dataUrl){
   $('raw-text').classList.add('hidden');
 
   try{
-    const text = await runOCR(small);
+    const ocrSource = await prepareForOCR(dataUrl); // image dédiée OCR (grande, gris, contrastée)
+    const text = await runOCR(ocrSource);
     state.ocrText = text;
     $('raw-pre').textContent = text || '(aucun texte détecté)';
     $('raw-count').textContent = text ? `(${text.length} car.)` : '';

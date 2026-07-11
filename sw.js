@@ -2,7 +2,7 @@
    Le code de l'app est en réseau-d'abord (pour recevoir les MAJ), le reste (icônes,
    moteur OCR, données de langue) en cache-d'abord pour marcher hors-ligne.
    Les appels IA (Gemini/Groq) sont des POST : le SW ne les touche jamais. */
-const CACHE = 'prisme-v1';
+const CACHE = 'prisme-v2';
 const CORE = [
   './',
   './index.html',
